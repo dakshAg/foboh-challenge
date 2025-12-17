@@ -54,6 +54,7 @@ export function PricingProfileForm({
   categories,
   subcategories,
   segments,
+  pricingProfiles,
 }: {
   products: Array<{
     id: string
@@ -71,9 +72,12 @@ export function PricingProfileForm({
   categories: Array<{ id: string; name: string }>
   subcategories: Array<{ id: string; name: string; categoryId: string }>
   segments: Array<{ id: string; name: string; subcategoryId: string }>
+  pricingProfiles: Array<{ id: string; name: string; status: string; basedOn: string }>
 }) {
   const [rootError, setRootError] = React.useState<string | null>(null)
   const [isPending, startTransition] = React.useTransition()
+
+  const [selectionMode, setSelectionMode] = React.useState<"one" | "multiple" | "all">("multiple")
 
   const [query, setQuery] = React.useState("")
   const [categoryFilter, setCategoryFilter] = React.useState<string>("all")
@@ -118,6 +122,18 @@ export function PricingProfileForm({
   const {
     formState: { errors },
   } = form
+
+  // Keep selection mode effects in sync.
+  React.useEffect(() => {
+    if (selectionMode !== "all") return
+    const allIds = products.map((p) => p.id)
+    form.setValue("productIds", allIds, { shouldDirty: true })
+    const current = form.getValues("adjustments") ?? {}
+    const next: Record<string, string> = { ...current }
+    for (const id of allIds) next[id] = next[id] ?? "0"
+    form.setValue("adjustments", next, { shouldDirty: true })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectionMode])
 
   const incrementMode = form.watch("incrementMode")
   const priceAdjustMode = form.watch("priceAdjustMode")
@@ -210,7 +226,7 @@ export function PricingProfileForm({
   }, [products, selectedIds])
 
   const adjustments = form.watch("adjustments")
-  const [preview, setPreview] = React.useState<Record<string, { newPrice: number }>>({})
+  const [preview, setPreview] = React.useState<Record<string, { base: number; newPrice: number }>>({})
   const [isCalculating, setIsCalculating] = React.useState(false)
   const previewReqId = React.useRef(0)
 
@@ -274,10 +290,10 @@ export function PricingProfileForm({
       // Ignore late responses.
       if (reqId !== previewReqId.current) return
 
-      if (res && res.ok) {
-        const next: Record<string, { newPrice: number }> = {}
+        if (res && res.ok) {
+          const next: Record<string, { base: number; newPrice: number }> = {}
         for (const [id, row] of Object.entries(res.byId)) {
-          next[id] = { newPrice: row.newPrice }
+            next[id] = { base: row.base, newPrice: row.newPrice }
         }
         setPreview(next)
       } else {
@@ -291,7 +307,11 @@ export function PricingProfileForm({
 
   const allPreviewReady =
     selectedIds.length === 0 ||
-    selectedIds.every((id) => typeof preview[id]?.newPrice === "number")
+    selectedIds.every(
+      (id) =>
+        typeof preview[id]?.newPrice === "number" &&
+        typeof preview[id]?.base === "number"
+    )
 
   const negativeNewPriceIds = React.useMemo(() => {
     if (selectedIds.length === 0) return []
@@ -320,13 +340,23 @@ export function PricingProfileForm({
         <Badge variant="outline">
           {selectedIds.length} selected
         </Badge>
+        <Badge variant="outline">
+          {Math.max(0, products.length - selectedIds.length)} unselected (uses “Based on”)
+        </Badge>
         <Badge variant="secondary">
           {priceAdjustMode === "DYNAMIC" ? "Percent" : "Dollars"}
         </Badge>
         <Badge variant={incrementMode === "DECREASE" ? "destructive" : "secondary"}>
           {incrementMode === "DECREASE" ? "Decrease" : "Increase"}
         </Badge>
-        {form.watch("basedOn") ? <Badge variant="outline">Based on: {form.watch("basedOn")}</Badge> : null}
+        {form.watch("basedOn") ? (
+          <Badge variant="outline">
+            Based on:{" "}
+            {form.watch("basedOn") === "globalWholesalePrice"
+              ? "Global wholesale price"
+              : pricingProfiles.find((p) => p.id === form.watch("basedOn"))?.name ?? "Profile"}
+          </Badge>
+        ) : null}
         {isCalculating ? <Badge variant="outline">Calculating…</Badge> : null}
       </div>
 
@@ -366,16 +396,33 @@ export function PricingProfileForm({
 
             <div className="grid gap-4 md:grid-cols-2">
               <Field>
-                <FieldLabel htmlFor="pp-based-on">Based on</FieldLabel>
+                <FieldLabel>Based on</FieldLabel>
                 <FieldContent>
-                  <Input
-                    id="pp-based-on"
-                    placeholder="e.g. globalWholesalePrice"
-                    {...form.register("basedOn")}
-                    aria-invalid={!!errors.basedOn}
+                  <Controller
+                    name="basedOn"
+                    control={form.control}
+                    render={({ field }) => (
+                      <Select value={field.value} onValueChange={field.onChange}>
+                        <SelectTrigger className="w-full">
+                          <SelectValue placeholder="Select base price" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectGroup>
+                            <SelectItem value="globalWholesalePrice">
+                              Global wholesale price
+                            </SelectItem>
+                            {pricingProfiles.map((p) => (
+                              <SelectItem key={p.id} value={p.id}>
+                                {p.name} {p.status === "DRAFT" ? "(Draft)" : ""}
+                              </SelectItem>
+                            ))}
+                          </SelectGroup>
+                        </SelectContent>
+                      </Select>
+                    )}
                   />
                   <FieldDescription>
-                    For now this is a freeform string; later you can constrain it.
+                    If a product isn’t selected in the “Based on” profile, it falls back to that profile’s base pricing.
                   </FieldDescription>
                   <FieldError errors={[errors.basedOn]} />
                 </FieldContent>
@@ -495,6 +542,26 @@ export function PricingProfileForm({
               <CardDescription>Select one or more products to include.</CardDescription>
             </div>
             <div className="flex items-center gap-2">
+              <div className="hidden sm:flex">
+                <RadioGroup
+                  value={selectionMode}
+                  onValueChange={(v) => setSelectionMode(v as typeof selectionMode)}
+                  className="flex items-center gap-3"
+                >
+                  <label className="flex items-center gap-2 text-xs">
+                    <RadioGroupItem value="one" />
+                    One
+                  </label>
+                  <label className="flex items-center gap-2 text-xs">
+                    <RadioGroupItem value="multiple" />
+                    Multiple
+                  </label>
+                  <label className="flex items-center gap-2 text-xs">
+                    <RadioGroupItem value="all" />
+                    All
+                  </label>
+                </RadioGroup>
+              </div>
               <Button
                 type="button"
                 size="sm"
@@ -515,7 +582,11 @@ export function PricingProfileForm({
                 size="sm"
                 variant="ghost"
                 disabled={form.watch("productIds").length === 0}
-                onClick={() => form.setValue("productIds", [], { shouldDirty: true })}
+                onClick={() => {
+                  form.setValue("productIds", [], { shouldDirty: true })
+                  form.setValue("adjustments", {}, { shouldDirty: true })
+                  if (selectionMode === "all") setSelectionMode("multiple")
+                }}
               >
                 Deselect all
               </Button>
@@ -650,10 +721,20 @@ export function PricingProfileForm({
                           >
                             <Checkbox
                               checked={checked}
+                              disabled={selectionMode === "all"}
                               onCheckedChange={(v) => {
                                 const next = new Set(field.value)
-                                if (v === true) next.add(p.id)
-                                else next.delete(p.id)
+                                if (selectionMode === "one") {
+                                  if (v === true) {
+                                    next.clear()
+                                    next.add(p.id)
+                                  } else {
+                                    next.delete(p.id)
+                                  }
+                                } else {
+                                  if (v === true) next.add(p.id)
+                                  else next.delete(p.id)
+                                }
                                 field.onChange(Array.from(next))
 
                                 // Keep adjustments in sync with selection.
@@ -664,6 +745,12 @@ export function PricingProfileForm({
                                     current[p.id] ?? "0",
                                     { shouldDirty: true }
                                   )
+                                  // In "one" mode, clear other adjustments.
+                                  if (selectionMode === "one") {
+                                    const only: Record<string, string> = {}
+                                    only[p.id] = current[p.id] ?? "0"
+                                    form.setValue("adjustments", only, { shouldDirty: true })
+                                  }
                                 } else {
                                   const { [p.id]: _, ...rest } = current
                                   form.setValue("adjustments", rest, { shouldDirty: true })
@@ -730,11 +817,12 @@ export function PricingProfileForm({
                 </thead>
                 <tbody className="divide-border/50 divide-y">
                   {selectedProducts.map((p) => {
-                    const base = parseMoney(p.globalWholesalePrice)
                     const adj = parseMoney(form.watch(`adjustments.${p.id}` as const) ?? "0")
+                    const serverNew = preview[p.id]?.newPrice
+                    const serverBase = preview[p.id]?.base
+                    const base = typeof serverBase === "number" ? serverBase : 0
                     const delta =
                       priceAdjustMode === "DYNAMIC" ? base * (adj / 100) : adj
-                    const serverNew = preview[p.id]?.newPrice
                     return (
                       <tr key={p.id}>
                         <td className="px-3 py-2">

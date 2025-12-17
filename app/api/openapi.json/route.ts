@@ -102,6 +102,17 @@ export async function GET(req: Request) {
             },
           },
         },
+        ProductPricingProfile: {
+          type: "object",
+          properties: {
+            id: { type: "string", format: "uuid" },
+            pricingProfileId: { type: "string", format: "uuid" },
+            productId: { type: "string", format: "uuid" },
+            adjustment: { type: "string", example: "1.25" },
+            createdAt: { type: "string", format: "date-time" },
+            updatedAt: { type: "string", format: "date-time" },
+          },
+        },
       },
     },
     security: [{ UserEmailHeader: [] }],
@@ -195,6 +206,51 @@ export async function GET(req: Request) {
         delete: {
           summary: "Delete pricing profile",
           parameters: [{ name: "id", in: "path", required: true, schema: { type: "string" } }],
+          responses: { "200": { description: "OK" }, "404": { description: "Not found" } },
+        },
+      },
+      "/api/pricing-profiles/{id}/items": {
+        get: {
+          summary: "List product pricing items for a profile",
+          parameters: [{ name: "id", in: "path", required: true, schema: { type: "string" } }],
+          responses: { "200": { description: "OK" }, "404": { description: "Not found" } },
+        },
+        post: {
+          summary: "Add or upsert a product pricing item",
+          parameters: [{ name: "id", in: "path", required: true, schema: { type: "string" } }],
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  required: ["productId", "adjustment"],
+                  properties: {
+                    productId: { type: "string", format: "uuid" },
+                    adjustment: { type: "string", example: "2.00" },
+                  },
+                },
+              },
+            },
+          },
+          responses: { "201": { description: "Created" }, "200": { description: "Updated" }, "404": { description: "Not found" } },
+        },
+      },
+      "/api/pricing-profiles/{id}/items/{itemId}": {
+        patch: {
+          summary: "Update a product pricing item",
+          parameters: [
+            { name: "id", in: "path", required: true, schema: { type: "string" } },
+            { name: "itemId", in: "path", required: true, schema: { type: "string" } },
+          ],
+          responses: { "200": { description: "OK" }, "404": { description: "Not found" } },
+        },
+        delete: {
+          summary: "Delete a product pricing item",
+          parameters: [
+            { name: "id", in: "path", required: true, schema: { type: "string" } },
+            { name: "itemId", in: "path", required: true, schema: { type: "string" } },
+          ],
           responses: { "200": { description: "OK" }, "404": { description: "Not found" } },
         },
       },

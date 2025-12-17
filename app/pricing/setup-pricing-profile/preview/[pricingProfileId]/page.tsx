@@ -65,8 +65,77 @@ export default async function PricingProfilePreviewPage({
     )
   }
 
+  // Build a small cache of based-on profile chain for this profile's products.
+  const productIds = profile.productPricingProfiles.map((ppp) => ppp.productId)
+  const profilesById = new Map<
+    string,
+    {
+      id: string
+      basedOn: string
+      priceAdjustMode: "FIXED" | "DYNAMIC"
+      incrementMode: "INCREASE" | "DECREASE"
+      adjustmentsByProductId: Record<string, number>
+    }
+  >()
+
+  const visited = new Set<string>()
+  let current = profile.basedOn
+  let depth = 0
+  while (current !== "globalWholesalePrice" && depth < 10) {
+    if (visited.has(current)) break
+    visited.add(current)
+    const p = await prisma.pricingProfile.findFirst({
+      where: { id: current, userId: user.id },
+      select: {
+        id: true,
+        basedOn: true,
+        priceAdjustMode: true,
+        incrementMode: true,
+        productPricingProfiles: {
+          where: { productId: { in: productIds } },
+          select: { productId: true, adjustment: true },
+        },
+      },
+    })
+    if (!p) break
+    const adjustmentsByProductId: Record<string, number> = {}
+    for (const ppp of p.productPricingProfiles) {
+      const n = Number(String(ppp.adjustment ?? "0"))
+      adjustmentsByProductId[ppp.productId] = Number.isFinite(n) ? n : 0
+    }
+    profilesById.set(p.id, {
+      id: p.id,
+      basedOn: p.basedOn,
+      priceAdjustMode: p.priceAdjustMode,
+      incrementMode: p.incrementMode,
+      adjustmentsByProductId,
+    })
+    current = p.basedOn
+    depth++
+  }
+
+  function applyAdjustment(base: number, adjustment: number, mode: "FIXED" | "DYNAMIC", inc: "INCREASE" | "DECREASE") {
+    const delta = mode === "DYNAMIC" ? base * (adjustment / 100) : adjustment
+    return inc === "DECREASE" ? base - delta : base + delta
+  }
+
+  function computeChainBasedOn(basedOn: string, productId: string, globalPrice: number, seen = new Set<string>(), d = 0): number {
+    if (basedOn === "globalWholesalePrice") return globalPrice
+    if (d > 10) return globalPrice
+    if (seen.has(basedOn)) return globalPrice
+    seen.add(basedOn)
+    const p = profilesById.get(basedOn)
+    if (!p) return globalPrice
+    const base = computeChainBasedOn(p.basedOn, productId, globalPrice, seen, d + 1)
+    const adj = p.adjustmentsByProductId[productId]
+    if (typeof adj !== "number") return base
+    return applyAdjustment(base, adj, p.priceAdjustMode, p.incrementMode)
+  }
+
   const rows = profile.productPricingProfiles.map((ppp) => {
-    const base = Number(String(ppp.product.globalWholesalePrice ?? "0"))
+    const global = Number(String(ppp.product.globalWholesalePrice ?? "0"))
+    const safeGlobal = Number.isFinite(global) ? global : 0
+    const base = computeChainBasedOn(profile.basedOn, ppp.productId, safeGlobal)
     const adj = Number(String(ppp.adjustment ?? "0"))
     const safeBase = Number.isFinite(base) ? base : 0
     const safeAdj = Number.isFinite(adj) ? adj : 0

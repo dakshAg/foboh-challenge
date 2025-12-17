@@ -15,7 +15,7 @@ export default async function SetupPricingProfilePage() {
     },
   })
 
-  const [rawProducts, categories, subcategories, segments] = await Promise.all([
+  const [rawProducts, categories, subcategories, segments, pricingProfiles] = await Promise.all([
     prisma.product.findMany({
       where: { userId: user.id },
       select: {
@@ -48,6 +48,11 @@ export default async function SetupPricingProfilePage() {
       orderBy: { name: "asc" },
       select: { id: true, name: true, subcategoryId: true },
     }),
+    prisma.pricingProfile.findMany({
+      where: { userId: user.id, status: { in: ["DRAFT", "COMPLETED"] } },
+      orderBy: { updatedAt: "desc" },
+      select: { id: true, name: true, status: true, basedOn: true },
+    }),
   ])
 
   // Prisma Decimal isn't serializable to Client Components; convert to string.
@@ -66,6 +71,7 @@ export default async function SetupPricingProfilePage() {
         categories={categories}
         subcategories={subcategories}
         segments={segments}
+        pricingProfiles={pricingProfiles}
       />
     </PageShell>
   )

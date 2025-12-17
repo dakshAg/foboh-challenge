@@ -11,7 +11,7 @@ const moneyString = z
 export const pricingProfileSchema = z.object({
   name: z.string().min(2, "Name must be at least 2 characters"),
   description: z.string().min(1, "Description is required"),
-  basedOn: z.string().min(1, "Based on is required"),
+  basedOn: z.union([z.literal("globalWholesalePrice"), z.string().uuid("Pick a profile")]),
   priceAdjustMode: z.enum(priceAdjustModes),
   incrementMode: z.enum(incrementModes),
   productIds: z.array(z.string().uuid()),
