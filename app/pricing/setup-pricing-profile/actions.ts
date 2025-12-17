@@ -8,6 +8,9 @@ import { pricingProfileSchema, type PricingProfileFormValues } from "./schema"
 import { z } from "zod"
 
 async function getDemoUser() {
+  // In this challenge app we don’t have real auth, so we use a deterministic
+  // “current user” for server actions and APIs. This keeps all data scoped
+  // consistently without adding an auth stack.
   const demoEmail = "demo@foboh.local"
   return prisma.user.upsert({
     where: { email: demoEmail },
@@ -29,6 +32,9 @@ async function loadProfileChainForProducts(args: {
   rootBasedOn: string
   productIds: string[]
 }) {
+  // Loads the "based on" chain (profile -> profile -> ... -> globalWholesalePrice)
+  // and returns a lookup map. We only load adjustments for the productIds we
+  // are computing, to keep the payload small.
   const { userId, rootBasedOn, productIds } = args
 
   const profilesById = new Map<string, LoadedProfile>()
@@ -37,6 +43,7 @@ async function loadProfileChainForProducts(args: {
   let current = rootBasedOn
   let depth = 0
   while (current !== "globalWholesalePrice" && depth < 10) {
+    // Guard against cycles or pathological depth.
     if (visited.has(current)) break
     visited.add(current)
 
@@ -83,6 +90,10 @@ function applyAdjustment(args: {
   priceAdjustMode: "FIXED" | "DYNAMIC"
   incrementMode: "INCREASE" | "DECREASE"
 }) {
+  // Core pricing formula:
+  // - FIXED: delta = $adjustment
+  // - DYNAMIC: delta = %adjustment of base
+  // IncrementMode decides whether we add or subtract delta.
   const base = Number.isFinite(args.base) ? args.base : 0
   const adj = Number.isFinite(args.adjustment) ? args.adjustment : 0
 
@@ -99,6 +110,11 @@ function computeBasedOnPrice(args: {
   depth?: number
   visited?: Set<string>
 }): number {
+  // Computes the "Based on" price for a product:
+  // - If basedOn is globalWholesalePrice: return productBasePrice
+  // - Else follow the basedOn chain and, where an adjustment exists for that
+  //   product, apply it; if not selected in that profile, fall back to the
+  //   parent base.
   const depth = args.depth ?? 0
   const visited = args.visited ?? new Set<string>()
 
@@ -131,6 +147,9 @@ function computeBasedOnPrice(args: {
 }
 
 export async function createPricingProfile(input: PricingProfileFormValues) {
+  // Creates a DRAFT pricing profile and immediately redirects to the Preview
+  // step. We validate that computed new prices cannot go negative server-side
+  // (even if the client is bypassed).
   const parsed = pricingProfileSchema.safeParse(input)
   if (!parsed.success) {
     return {
@@ -157,6 +176,7 @@ export async function createPricingProfile(input: PricingProfileFormValues) {
 
   const negativeTitles: string[] = []
   for (const p of products) {
+    // base = computed "based on" price (global or inherited profile chain)
     const global = Number(String(p.globalWholesalePrice ?? "0"))
     const safeGlobal = Number.isFinite(global) ? global : 0
     const base = computeBasedOnPrice({
@@ -191,6 +211,7 @@ export async function createPricingProfile(input: PricingProfileFormValues) {
       ...profile,
       userId: user.id,
       status: "DRAFT",
+      // Store per-product adjustments in ProductPricingProfile rows.
       productPricingProfiles: productIds.length
         ? {
             create: productIds.map((productId) => ({
@@ -203,6 +224,7 @@ export async function createPricingProfile(input: PricingProfileFormValues) {
     select: { id: true },
   })
 
+  // Revalidate listing and go to preview step.
   revalidatePath("/pricing")
   redirect(`/pricing/setup-pricing-profile/preview/${created.id}`)
 }
@@ -218,6 +240,9 @@ const pricingPreviewSchema = z.object({
 export async function calculatePricingPreview(
   input: z.infer<typeof pricingPreviewSchema>
 ) {
+  // Server-side pricing preview used by the client table. Keeping it on the
+  // server guarantees we use the latest product prices and matches backend
+  // business logic.
   const parsed = pricingPreviewSchema.safeParse(input)
   if (!parsed.success) {
     return { ok: false as const, message: "Invalid input." }
@@ -286,6 +311,9 @@ export async function publishPricingProfileFormAction(
   pricingProfileId: string,
   _formData: FormData
 ): Promise<void> {
+  // Publishing is a state transition: DRAFT -> COMPLETED.
+  // We re-check negatives here to prevent publishing invalid pricing even if
+  // data changed between "create" and "publish" steps.
   const parsed = publishSchema.safeParse({ pricingProfileId })
   if (!parsed.success) {
     redirect(`/pricing/setup-pricing-profile/preview/${pricingProfileId}?error=invalid`)

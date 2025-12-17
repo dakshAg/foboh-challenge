@@ -7,6 +7,8 @@ import prisma from "@/lib/prisma"
 import { productSchema, type ProductFormValues } from "./schema"
 
 export async function createProduct(input: ProductFormValues) {
+  // Server action for the Add Product form.
+  // Validates input, scopes to the current user, and redirects on success.
   const parsed = productSchema.safeParse(input)
   if (!parsed.success) {
     return {
@@ -16,6 +18,7 @@ export async function createProduct(input: ProductFormValues) {
     }
   }
 
+  // Deterministic “current user” for this challenge (no auth layer).
   const demoEmail = "demo@foboh.local"
 
   const user = await prisma.user.upsert({
@@ -29,6 +32,7 @@ export async function createProduct(input: ProductFormValues) {
   })
 
   try {
+    // Note: globalWholesalePrice is a Decimal in Prisma; we store it as a numeric string.
     await prisma.product.create({
       data: {
         ...parsed.data,
@@ -37,6 +41,7 @@ export async function createProduct(input: ProductFormValues) {
       },
     })
   } catch (e) {
+    // SKU is unique; conflicts will land here.
     return {
       ok: false as const,
       message:
@@ -44,6 +49,7 @@ export async function createProduct(input: ProductFormValues) {
     }
   }
 
+  // Revalidate the listing page and return the user to it.
   revalidatePath("/products")
   redirect("/products")
 }

@@ -17,6 +17,7 @@ import {
 } from "./schema"
 
 async function getDemoUser() {
+  // Deterministic “current user” for this challenge (no auth layer).
   const demoEmail = "demo@foboh.local"
   return prisma.user.upsert({
     where: { email: demoEmail },
@@ -26,6 +27,7 @@ async function getDemoUser() {
 }
 
 export async function createCategory(input: CategoryFormValues) {
+  // Creates a category scoped to the current user.
   const parsed = categorySchema.safeParse(input)
   if (!parsed.success) {
     return { ok: false as const, fieldErrors: parsed.error.flatten().fieldErrors }
@@ -40,6 +42,7 @@ export async function createCategory(input: CategoryFormValues) {
 }
 
 export async function createSubcategory(input: SubcategoryFormValues) {
+  // Creates a subcategory under a category. Validates categoryId belongs to the user via DB constraints.
   const parsed = subcategorySchema.safeParse(input)
   if (!parsed.success) {
     return { ok: false as const, fieldErrors: parsed.error.flatten().fieldErrors }
@@ -54,6 +57,7 @@ export async function createSubcategory(input: SubcategoryFormValues) {
 }
 
 export async function createSegment(input: SegmentFormValues) {
+  // Creates a segment under a subcategory.
   const parsed = segmentSchema.safeParse(input)
   if (!parsed.success) {
     return { ok: false as const, fieldErrors: parsed.error.flatten().fieldErrors }
@@ -68,6 +72,7 @@ export async function createSegment(input: SegmentFormValues) {
 }
 
 export async function renameCategory(input: RenameValues) {
+  // Renames a category; uses updateMany + userId guard to avoid leaking existence across users.
   const parsed = renameSchema.safeParse(input)
   if (!parsed.success) return { ok: false as const, fieldErrors: parsed.error.flatten().fieldErrors }
 
@@ -87,6 +92,7 @@ export async function renameCategory(input: RenameValues) {
 }
 
 export async function renameSubcategory(input: RenameValues) {
+  // Renames a subcategory (scoped by userId).
   const parsed = renameSchema.safeParse(input)
   if (!parsed.success) return { ok: false as const, fieldErrors: parsed.error.flatten().fieldErrors }
 
@@ -106,6 +112,7 @@ export async function renameSubcategory(input: RenameValues) {
 }
 
 export async function renameSegment(input: RenameValues) {
+  // Renames a segment (scoped by userId).
   const parsed = renameSchema.safeParse(input)
   if (!parsed.success) return { ok: false as const, fieldErrors: parsed.error.flatten().fieldErrors }
 
@@ -125,6 +132,7 @@ export async function renameSegment(input: RenameValues) {
 }
 
 export async function deleteCategory(input: DeleteValues) {
+  // Deletes category and its descendants, but only if no Product references it.
   const parsed = deleteSchema.safeParse(input)
   if (!parsed.success) return { ok: false as const, fieldErrors: parsed.error.flatten().fieldErrors }
 
@@ -137,6 +145,7 @@ export async function deleteCategory(input: DeleteValues) {
     return { ok: false as const, message: "Cannot delete: category has products." }
   }
 
+  // Cascade delete subcategories + segments in a transaction.
   await prisma.$transaction(async (tx) => {
     const subcats = await tx.subcategory.findMany({
       where: { userId: user.id, categoryId: parsed.data.id },
@@ -164,6 +173,7 @@ export async function deleteCategory(input: DeleteValues) {
 }
 
 export async function deleteSubcategory(input: DeleteValues) {
+  // Deletes subcategory and its segments, but only if no Product references it.
   const parsed = deleteSchema.safeParse(input)
   if (!parsed.success) return { ok: false as const, fieldErrors: parsed.error.flatten().fieldErrors }
 
@@ -176,6 +186,7 @@ export async function deleteSubcategory(input: DeleteValues) {
     return { ok: false as const, message: "Cannot delete: subcategory has products." }
   }
 
+  // Cascade delete segments in a transaction.
   await prisma.$transaction(async (tx) => {
     await tx.segment.deleteMany({
       where: { userId: user.id, subcategoryId: parsed.data.id },
@@ -191,6 +202,7 @@ export async function deleteSubcategory(input: DeleteValues) {
 }
 
 export async function deleteSegment(input: DeleteValues) {
+  // Deletes a segment only if no Product references it.
   const parsed = deleteSchema.safeParse(input)
   if (!parsed.success) return { ok: false as const, fieldErrors: parsed.error.flatten().fieldErrors }
 
