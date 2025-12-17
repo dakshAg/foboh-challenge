@@ -49,9 +49,6 @@ export default async function PricingPage() {
               <Button asChild variant="outline" size="sm">
                 <Link href={`/pricing/setup-pricing-profile/preview/${p.id}`}>View</Link>
               </Button>
-              <Button variant="ghost" size="sm">
-                Duplicate
-              </Button>
             </CardFooter>
           </Card>
         ))}
