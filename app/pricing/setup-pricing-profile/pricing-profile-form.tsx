@@ -212,6 +212,19 @@ export function PricingProfileForm({
   const adjustments = form.watch("adjustments")
   const [preview, setPreview] = React.useState<Record<string, { newPrice: number }>>({})
   const [isCalculating, setIsCalculating] = React.useState(false)
+  const previewReqId = React.useRef(0)
+
+  function useDebouncedValue<T>(value: T, delayMs: number) {
+    const [debounced, setDebounced] = React.useState(value)
+    React.useEffect(() => {
+      const handle = window.setTimeout(() => setDebounced(value), delayMs)
+      return () => window.clearTimeout(handle)
+    }, [value, delayMs])
+    return debounced
+  }
+
+  // Debounce server-side preview off adjustment typing.
+  const debouncedAdjustments = useDebouncedValue(adjustments ?? {}, 400)
 
   const anyFiltersActive =
     query.trim().length > 0 ||
@@ -242,37 +255,39 @@ export function PricingProfileForm({
   React.useEffect(() => {
     if (selectedIds.length === 0) {
       setPreview({})
+      setIsCalculating(false)
       return
     }
 
-    const handle = window.setTimeout(() => {
-      setIsCalculating(true)
-      startTransition(async () => {
-        const res = await calculatePricingPreview({
-          basedOn: form.getValues("basedOn"),
-          priceAdjustMode,
-          incrementMode,
-          productIds: selectedIds,
-          adjustments: adjustments ?? {},
-        })
+    const reqId = ++previewReqId.current
+    setIsCalculating(true)
 
-        if (res && res.ok) {
-          const next: Record<string, { newPrice: number }> = {}
-          for (const [id, row] of Object.entries(res.byId)) {
-            next[id] = { newPrice: row.newPrice }
-          }
-          setPreview(next)
-        } else {
-          setPreview({})
-        }
-
-        setIsCalculating(false)
+    startTransition(async () => {
+      const res = await calculatePricingPreview({
+        basedOn: form.getValues("basedOn"),
+        priceAdjustMode,
+        incrementMode,
+        productIds: selectedIds,
+        adjustments: debouncedAdjustments,
       })
-    }, 250)
 
-    return () => window.clearTimeout(handle)
+      // Ignore late responses.
+      if (reqId !== previewReqId.current) return
+
+      if (res && res.ok) {
+        const next: Record<string, { newPrice: number }> = {}
+        for (const [id, row] of Object.entries(res.byId)) {
+          next[id] = { newPrice: row.newPrice }
+        }
+        setPreview(next)
+      } else {
+        setPreview({})
+      }
+
+      setIsCalculating(false)
+    })
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedIds, adjustments, priceAdjustMode, incrementMode])
+  }, [selectedIds, debouncedAdjustments, priceAdjustMode, incrementMode])
 
   const allPreviewReady =
     selectedIds.length === 0 ||

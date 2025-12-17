@@ -46,8 +46,8 @@ export default async function PricingPage() {
               Based on: {p.basedOn} • Updated: {formatUpdatedAt(p.updatedAt)}
             </CardContent>
             <CardFooter className="gap-2">
-              <Button variant="outline" size="sm">
-                View
+              <Button asChild variant="outline" size="sm">
+                <Link href={`/pricing/setup-pricing-profile/preview/${p.id}`}>View</Link>
               </Button>
               <Button variant="ghost" size="sm">
                 Duplicate

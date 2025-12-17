@@ -64,10 +64,11 @@ export async function createPricingProfile(input: PricingProfileFormValues) {
     }
   }
 
-  await prisma.pricingProfile.create({
+  const created = await prisma.pricingProfile.create({
     data: {
       ...profile,
       userId: user.id,
+      status: "DRAFT",
       productPricingProfiles: productIds.length
         ? {
             create: productIds.map((productId) => ({
@@ -77,10 +78,11 @@ export async function createPricingProfile(input: PricingProfileFormValues) {
           }
         : undefined,
     },
+    select: { id: true },
   })
 
   revalidatePath("/pricing")
-  redirect("/pricing")
+  redirect(`/pricing/setup-pricing-profile/preview/${created.id}`)
 }
 
 const pricingPreviewSchema = z.object({
@@ -145,6 +147,80 @@ export async function calculatePricingPreview(
   }
 
   return { ok: true as const, byId }
+}
+
+const publishSchema = z.object({
+  pricingProfileId: z.string().uuid(),
+})
+
+export async function publishPricingProfile(pricingProfileId: string) {
+  return publishPricingProfileFormAction(pricingProfileId, new FormData())
+}
+
+// Form actions must accept FormData and return void/Promise<void>.
+export async function publishPricingProfileFormAction(
+  pricingProfileId: string,
+  _formData: FormData
+): Promise<void> {
+  const parsed = publishSchema.safeParse({ pricingProfileId })
+  if (!parsed.success) {
+    redirect(`/pricing/setup-pricing-profile/preview/${pricingProfileId}?error=invalid`)
+  }
+
+  const demoEmail = "demo@foboh.local"
+
+  const user = await prisma.user.upsert({
+    where: { email: demoEmail },
+    update: {},
+    create: {
+      email: demoEmail,
+      password: "demo",
+      name: "Demo User",
+    },
+  })
+
+  const profile = await prisma.pricingProfile.findFirst({
+    where: { id: parsed.data.pricingProfileId, userId: user.id },
+    include: {
+      productPricingProfiles: {
+        include: { product: { select: { id: true, title: true, globalWholesalePrice: true } } },
+      },
+    },
+  })
+
+  if (!profile) {
+    redirect(`/pricing/setup-pricing-profile/preview/${pricingProfileId}?error=not_found`)
+  }
+
+  if (profile.basedOn !== "globalWholesalePrice") {
+    redirect(`/pricing/setup-pricing-profile/preview/${profile.id}?error=unsupported`)
+  }
+
+  // Re-check negatives using stored adjustments.
+  const negativeTitles: string[] = []
+  for (const ppp of profile.productPricingProfiles) {
+    const base = Number(String(ppp.product.globalWholesalePrice ?? "0"))
+    const rawAdj = Number(String(ppp.adjustment ?? "0"))
+    const safeBase = Number.isFinite(base) ? base : 0
+    const safeAdj = Number.isFinite(rawAdj) ? rawAdj : 0
+    const delta =
+      profile.priceAdjustMode === "DYNAMIC" ? safeBase * (safeAdj / 100) : safeAdj
+    const newPrice =
+      profile.incrementMode === "DECREASE" ? safeBase - delta : safeBase + delta
+    if (newPrice < 0) negativeTitles.push(ppp.product.title)
+  }
+
+  if (negativeTitles.length) {
+    redirect(`/pricing/setup-pricing-profile/preview/${profile.id}?error=negative`)
+  }
+
+  await prisma.pricingProfile.updateMany({
+    where: { id: profile.id, userId: user.id },
+    data: { status: "COMPLETED" },
+  })
+
+  revalidatePath("/pricing")
+  redirect("/pricing")
 }
 
 
