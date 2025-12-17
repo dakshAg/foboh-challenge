@@ -1,0 +1,83 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+
+generator client {
+  provider = "prisma-client"
+  output   = "../app/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model User {
+  id              String           @id @default(uuid())
+  email           String           @unique
+  password        String
+  name            String
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+  pricingProfiles PricingProfile[]
+  products        Product[]
+}
+
+model Product {
+  id                     String                  @id @default(uuid())
+  title                  String
+  sku                    String                  @unique
+  brand                  String
+  userId                 String
+  categoryId             String
+  subcategoryId          String
+  segmentId              String
+  globalWholesalePrice   Decimal
+  createdAt              DateTime                @default(now())
+  updatedAt              DateTime                @updatedAt
+  productPricingProfiles ProductPricingProfile[]
+  user                   User                    @relation(fields: [userId], references: [id])
+}
+
+enum PriceAdjustMode {
+  FIXED
+  DYNAMIC
+}
+
+enum IncrementMode {
+  INCREASE
+  DECREASE
+}
+
+enum PricingProfileStatus {
+  DRAFT
+  COMPLETED
+  ARCHIVED
+}
+
+model PricingProfile {
+  id                     String                  @id @default(uuid())
+  name                   String
+  userId                 String
+  description            String
+  basedOn                String
+  priceAdjustMode        PriceAdjustMode
+  incrementMode          IncrementMode
+  status                 PricingProfileStatus    @default(DRAFT)
+  createdAt              DateTime                @default(now())
+  updatedAt              DateTime                @updatedAt
+  productPricingProfiles ProductPricingProfile[]
+  user                   User                    @relation(fields: [userId], references: [id])
+}
+
+model ProductPricingProfile {
+  id               String         @id @default(uuid())
+  productId        String
+  pricingProfileId String
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
+  product          Product        @relation(fields: [productId], references: [id])
+  pricingProfile   PricingProfile @relation(fields: [pricingProfileId], references: [id])
+  adjustment       Decimal
+}

@@ -34,3 +34,8 @@ You can check out [the Next.js GitHub repository](https://github.com/vercel/next
 The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
 
 Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+
+## Thinking
+- First, the framework choice. The spec mentions to use React for frontend and nodejs for backend. NextJS is the modern React framework, so that's the default choice. NextJS supports the server actions architecture, so there's no need for an explicit backend. At the same time, we might need to connect this with external services, so we will expose CRUD endpoints separately.
+- Next, the database. While there's no explicit need for one, with Prisma, its easier to build with one instead of without one, so lets build a tiny one. I'm running out of Supabase projects, so this project will use Prisma Postgres, which is exploratory for me, but shouldn't be too different from Supabase.
+- 
