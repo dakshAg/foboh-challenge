@@ -36,9 +36,9 @@ import {
 import {
   ArrowDownIcon,
   ArrowUpIcon,
-  CalculatorIcon,
+  DollarSignIcon,
+  PercentIcon,
   RefreshCwIcon,
-  SparklesIcon,
 } from "lucide-react"
 
 import { createPricingProfile } from "./actions"
@@ -688,7 +688,7 @@ export function PricingProfileForm({
                         <RadioGroupItem id="pp-pam-fixed" value="FIXED" className="mt-0.5" />
                         <div className="flex-1">
                           <div className="flex items-center gap-2 text-xs font-medium">
-                            <CalculatorIcon className="size-3.5" />
+                            <DollarSignIcon className="size-3.5" />
                             Fixed
                           </div>
                           <div className="text-muted-foreground mt-0.5 text-[0.625rem]">
@@ -704,7 +704,7 @@ export function PricingProfileForm({
                         <RadioGroupItem id="pp-pam-dynamic" value="DYNAMIC" className="mt-0.5" />
                         <div className="flex-1">
                           <div className="flex items-center gap-2 text-xs font-medium">
-                            <SparklesIcon className="size-3.5" />
+                            <PercentIcon className="size-3.5" />
                             Dynamic
                           </div>
                           <div className="text-muted-foreground mt-0.5 text-[0.625rem]">
@@ -779,7 +779,7 @@ export function PricingProfileForm({
             <div>
               <CardTitle>Price adjust table</CardTitle>
               <CardDescription>
-                Adjustments are local; new prices are calculated via server action.
+                Review and adjust prices for selected products.
               </CardDescription>
             </div>
             <div className="flex items-center gap-2">
