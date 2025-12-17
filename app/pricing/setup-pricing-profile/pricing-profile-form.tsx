@@ -37,6 +37,7 @@ import {
   ArrowDownIcon,
   ArrowUpIcon,
   CalculatorIcon,
+  RefreshCwIcon,
   SparklesIcon,
 } from "lucide-react"
 
@@ -137,6 +138,7 @@ export function PricingProfileForm({
 
   const incrementMode = form.watch("incrementMode")
   const priceAdjustMode = form.watch("priceAdjustMode")
+  const basedOn = form.watch("basedOn")
   const adjustmentTint =
     incrementMode === "DECREASE"
       ? "bg-destructive/5 ring-destructive/15 focus-within:ring-destructive/20"
@@ -230,6 +232,43 @@ export function PricingProfileForm({
   const [isCalculating, setIsCalculating] = React.useState(false)
   const previewReqId = React.useRef(0)
 
+  // Manual refresh function for pricing preview
+  const refreshPricingPreview = React.useCallback(() => {
+    if (selectedIds.length === 0) {
+      setPreview({})
+      setIsCalculating(false)
+      return
+    }
+
+    const reqId = ++previewReqId.current
+    setIsCalculating(true)
+
+    startTransition(async () => {
+      const res = await calculatePricingPreview({
+        basedOn,
+        priceAdjustMode,
+        incrementMode,
+        productIds: selectedIds,
+        adjustments: adjustments ?? {},
+      })
+
+      // Ignore late responses.
+      if (reqId !== previewReqId.current) return
+
+      if (res && res.ok) {
+        const next: Record<string, { base: number; newPrice: number }> = {}
+        for (const [id, row] of Object.entries(res.byId)) {
+          next[id] = { base: row.base, newPrice: row.newPrice }
+        }
+        setPreview(next)
+      } else {
+        setPreview({})
+      }
+
+      setIsCalculating(false)
+    })
+  }, [selectedIds, adjustments, basedOn, priceAdjustMode, incrementMode])
+
   function useDebouncedValue<T>(value: T, delayMs: number) {
     const [debounced, setDebounced] = React.useState(value)
     React.useEffect(() => {
@@ -269,41 +308,9 @@ export function PricingProfileForm({
   }, [brandFilter, categoryFilter, query, segmentFilter, segments, subcategoryFilter, subcategories, categories])
 
   React.useEffect(() => {
-    if (selectedIds.length === 0) {
-      setPreview({})
-      setIsCalculating(false)
-      return
-    }
-
-    const reqId = ++previewReqId.current
-    setIsCalculating(true)
-
-    startTransition(async () => {
-      const res = await calculatePricingPreview({
-        basedOn: form.getValues("basedOn"),
-        priceAdjustMode,
-        incrementMode,
-        productIds: selectedIds,
-        adjustments: debouncedAdjustments,
-      })
-
-      // Ignore late responses.
-      if (reqId !== previewReqId.current) return
-
-        if (res && res.ok) {
-          const next: Record<string, { base: number; newPrice: number }> = {}
-        for (const [id, row] of Object.entries(res.byId)) {
-            next[id] = { base: row.base, newPrice: row.newPrice }
-        }
-        setPreview(next)
-      } else {
-        setPreview({})
-      }
-
-      setIsCalculating(false)
-    })
+    refreshPricingPreview()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedIds, debouncedAdjustments, priceAdjustMode, incrementMode])
+  }, [selectedIds, debouncedAdjustments, priceAdjustMode, incrementMode, basedOn])
 
   const allPreviewReady =
     selectedIds.length === 0 ||
@@ -362,13 +369,13 @@ export function PricingProfileForm({
 
       <Card>
         <CardHeader>
-          <CardTitle>Basic details</CardTitle>
-          <CardDescription>Match the fields in the Prisma schema.</CardDescription>
+          <CardTitle>Profile details</CardTitle>
+          <CardDescription>Configure your pricing profile settings.</CardDescription>
         </CardHeader>
         <CardContent>
           <FieldGroup>
             <Field>
-              <FieldLabel htmlFor="pp-name">Profile name</FieldLabel>
+              <FieldLabel htmlFor="pp-name">Name</FieldLabel>
               <FieldContent>
                 <Input
                   id="pp-name"
@@ -394,141 +401,6 @@ export function PricingProfileForm({
               </FieldContent>
             </Field>
 
-            <div className="grid gap-4 md:grid-cols-2">
-              <Field>
-                <FieldLabel>Based on</FieldLabel>
-                <FieldContent>
-                  <Controller
-                    name="basedOn"
-                    control={form.control}
-                    render={({ field }) => (
-                      <Select value={field.value} onValueChange={field.onChange}>
-                        <SelectTrigger className="w-full">
-                          <SelectValue placeholder="Select base price" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectGroup>
-                            <SelectItem value="globalWholesalePrice">
-                              Global wholesale price
-                            </SelectItem>
-                            {pricingProfiles.map((p) => (
-                              <SelectItem key={p.id} value={p.id}>
-                                {p.name} {p.status === "DRAFT" ? "(Draft)" : ""}
-                              </SelectItem>
-                            ))}
-                          </SelectGroup>
-                        </SelectContent>
-                      </Select>
-                    )}
-                  />
-                  <FieldDescription>
-                    If a product isn’t selected in the “Based on” profile, it falls back to that profile’s base pricing.
-                  </FieldDescription>
-                  <FieldError errors={[errors.basedOn]} />
-                </FieldContent>
-              </Field>
-
-              <Field>
-                <FieldLabel>Price adjust mode</FieldLabel>
-                <FieldContent>
-                  <Controller
-                    name="priceAdjustMode"
-                    control={form.control}
-                    render={({ field }) => (
-                      <RadioGroup
-                        value={field.value}
-                        onValueChange={(v) => field.onChange(v)}
-                        className="grid gap-2"
-                      >
-                        <label
-                          className="ring-foreground/10 has-[:checked]:ring-primary/40 has-[:checked]:bg-muted/40 bg-card rounded-lg p-3 ring-1 transition-colors flex items-start gap-3 cursor-pointer"
-                          htmlFor="pp-pam-fixed"
-                        >
-                          <RadioGroupItem id="pp-pam-fixed" value="FIXED" className="mt-0.5" />
-                          <div className="flex-1">
-                            <div className="flex items-center gap-2 text-xs font-medium">
-                              <CalculatorIcon className="size-3.5" />
-                              Fixed
-                            </div>
-                            <div className="text-muted-foreground mt-0.5 text-[0.625rem]">
-                              Apply a fixed adjustment per product/profile.
-                            </div>
-                          </div>
-                        </label>
-
-                        <label
-                          className="ring-foreground/10 has-[:checked]:ring-primary/40 has-[:checked]:bg-muted/40 bg-card rounded-lg p-3 ring-1 transition-colors flex items-start gap-3 cursor-pointer"
-                          htmlFor="pp-pam-dynamic"
-                        >
-                          <RadioGroupItem id="pp-pam-dynamic" value="DYNAMIC" className="mt-0.5" />
-                          <div className="flex-1">
-                            <div className="flex items-center gap-2 text-xs font-medium">
-                              <SparklesIcon className="size-3.5" />
-                              Dynamic
-                            </div>
-                            <div className="text-muted-foreground mt-0.5 text-[0.625rem]">
-                              Compute adjustment from rules (placeholder).
-                            </div>
-                          </div>
-                        </label>
-                      </RadioGroup>
-                    )}
-                  />
-                  <FieldError errors={[errors.priceAdjustMode]} />
-                </FieldContent>
-              </Field>
-            </div>
-
-            <Field>
-              <FieldLabel>Increment mode</FieldLabel>
-              <FieldContent>
-                <Controller
-                  name="incrementMode"
-                  control={form.control}
-                  render={({ field }) => (
-                    <RadioGroup
-                      value={field.value}
-                      onValueChange={(v) => field.onChange(v)}
-                      className="grid gap-2"
-                    >
-                      <label
-                        className="ring-foreground/10 has-[:checked]:ring-primary/40 has-[:checked]:bg-muted/40 bg-card rounded-lg p-3 ring-1 transition-colors flex items-start gap-3 cursor-pointer"
-                        htmlFor="pp-inc-increase"
-                      >
-                        <RadioGroupItem id="pp-inc-increase" value="INCREASE" className="mt-0.5" />
-                        <div className="flex-1">
-                          <div className="flex items-center gap-2 text-xs font-medium">
-                            <ArrowUpIcon className="size-3.5" />
-                            Increase
-                          </div>
-                          <div className="text-muted-foreground mt-0.5 text-[0.625rem]">
-                            Add adjustment to the base price.
-                          </div>
-                        </div>
-                      </label>
-
-                      <label
-                        className="ring-foreground/10 has-[:checked]:ring-primary/40 has-[:checked]:bg-muted/40 bg-card rounded-lg p-3 ring-1 transition-colors flex items-start gap-3 cursor-pointer"
-                        htmlFor="pp-inc-decrease"
-                      >
-                        <RadioGroupItem id="pp-inc-decrease" value="DECREASE" className="mt-0.5" />
-                        <div className="flex-1">
-                          <div className="flex items-center gap-2 text-xs font-medium">
-                            <ArrowDownIcon className="size-3.5" />
-                            Decrease
-                          </div>
-                          <div className="text-muted-foreground mt-0.5 text-[0.625rem]">
-                            Subtract adjustment from the base price.
-                          </div>
-                        </div>
-                      </label>
-                    </RadioGroup>
-                  )}
-                />
-                <FieldError errors={[errors.incrementMode]} />
-              </FieldContent>
-            </Field>
-
             {rootError ? <FieldError>{rootError}</FieldError> : null}
           </FieldGroup>
         </CardContent>
@@ -538,7 +410,7 @@ export function PricingProfileForm({
         <CardHeader>
           <div className="flex items-center justify-between gap-2">
             <div>
-              <CardTitle>Products</CardTitle>
+              <CardTitle>Product select</CardTitle>
               <CardDescription>Select one or more products to include.</CardDescription>
             </div>
             <div className="flex items-center gap-2">
@@ -785,15 +657,172 @@ export function PricingProfileForm({
 
       <Card>
         <CardHeader>
+          <CardTitle>Pricing configuration</CardTitle>
+          <CardDescription>Configure how prices will be adjusted.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <FieldGroup>
+            <Field>
+              <FieldLabel>Based on</FieldLabel>
+              <FieldContent>
+                <Controller
+                  name="basedOn"
+                  control={form.control}
+                  render={({ field }) => (
+                    <Select value={field.value} onValueChange={field.onChange}>
+                      <SelectTrigger className="w-full">
+                        <SelectValue placeholder="Select base price" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectGroup>
+                          <SelectItem value="globalWholesalePrice">
+                            Global wholesale price
+                          </SelectItem>
+                          {pricingProfiles.map((p) => (
+                            <SelectItem key={p.id} value={p.id}>
+                              {p.name} {p.status === "DRAFT" ? "(Draft)" : ""}
+                            </SelectItem>
+                          ))}
+                        </SelectGroup>
+                      </SelectContent>
+                    </Select>
+                  )}
+                />
+                <FieldDescription>
+                  If a product isn't selected in the "Based on" profile, it falls back to that profile's base pricing.
+                </FieldDescription>
+                <FieldError errors={[errors.basedOn]} />
+              </FieldContent>
+            </Field>
+
+            <Field>
+              <FieldLabel>Price adjust mode</FieldLabel>
+              <FieldContent>
+                <Controller
+                  name="priceAdjustMode"
+                  control={form.control}
+                  render={({ field }) => (
+                    <RadioGroup
+                      value={field.value}
+                      onValueChange={(v) => field.onChange(v)}
+                      className="grid gap-2"
+                    >
+                      <label
+                        className="ring-foreground/10 has-[:checked]:ring-primary/40 has-[:checked]:bg-muted/40 bg-card rounded-lg p-3 ring-1 transition-colors flex items-start gap-3 cursor-pointer"
+                        htmlFor="pp-pam-fixed"
+                      >
+                        <RadioGroupItem id="pp-pam-fixed" value="FIXED" className="mt-0.5" />
+                        <div className="flex-1">
+                          <div className="flex items-center gap-2 text-xs font-medium">
+                            <CalculatorIcon className="size-3.5" />
+                            Fixed
+                          </div>
+                          <div className="text-muted-foreground mt-0.5 text-[0.625rem]">
+                            Apply a fixed adjustment per product/profile.
+                          </div>
+                        </div>
+                      </label>
+
+                      <label
+                        className="ring-foreground/10 has-[:checked]:ring-primary/40 has-[:checked]:bg-muted/40 bg-card rounded-lg p-3 ring-1 transition-colors flex items-start gap-3 cursor-pointer"
+                        htmlFor="pp-pam-dynamic"
+                      >
+                        <RadioGroupItem id="pp-pam-dynamic" value="DYNAMIC" className="mt-0.5" />
+                        <div className="flex-1">
+                          <div className="flex items-center gap-2 text-xs font-medium">
+                            <SparklesIcon className="size-3.5" />
+                            Dynamic
+                          </div>
+                          <div className="text-muted-foreground mt-0.5 text-[0.625rem]">
+                            Compute adjustment from rules (placeholder).
+                          </div>
+                        </div>
+                      </label>
+                    </RadioGroup>
+                  )}
+                />
+                <FieldError errors={[errors.priceAdjustMode]} />
+              </FieldContent>
+            </Field>
+
+            <Field>
+              <FieldLabel>Increment mode</FieldLabel>
+              <FieldContent>
+                <Controller
+                  name="incrementMode"
+                  control={form.control}
+                  render={({ field }) => (
+                    <RadioGroup
+                      value={field.value}
+                      onValueChange={(v) => field.onChange(v)}
+                      className="grid gap-2"
+                    >
+                      <label
+                        className="ring-foreground/10 has-[:checked]:ring-primary/40 has-[:checked]:bg-muted/40 bg-card rounded-lg p-3 ring-1 transition-colors flex items-start gap-3 cursor-pointer"
+                        htmlFor="pp-inc-increase"
+                      >
+                        <RadioGroupItem id="pp-inc-increase" value="INCREASE" className="mt-0.5" />
+                        <div className="flex-1">
+                          <div className="flex items-center gap-2 text-xs font-medium">
+                            <ArrowUpIcon className="size-3.5" />
+                            Increase
+                          </div>
+                          <div className="text-muted-foreground mt-0.5 text-[0.625rem]">
+                            Add adjustment to the base price.
+                          </div>
+                        </div>
+                      </label>
+
+                      <label
+                        className="ring-foreground/10 has-[:checked]:ring-primary/40 has-[:checked]:bg-muted/40 bg-card rounded-lg p-3 ring-1 transition-colors flex items-start gap-3 cursor-pointer"
+                        htmlFor="pp-inc-decrease"
+                      >
+                        <RadioGroupItem id="pp-inc-decrease" value="DECREASE" className="mt-0.5" />
+                        <div className="flex-1">
+                          <div className="flex items-center gap-2 text-xs font-medium">
+                            <ArrowDownIcon className="size-3.5" />
+                            Decrease
+                          </div>
+                          <div className="text-muted-foreground mt-0.5 text-[0.625rem]">
+                            Subtract adjustment from the base price.
+                          </div>
+                        </div>
+                      </label>
+                    </RadioGroup>
+                  )}
+                />
+                <FieldError errors={[errors.incrementMode]} />
+              </FieldContent>
+            </Field>
+          </FieldGroup>
+        </CardContent>
+      </Card>
+
+
+      <Card>
+        <CardHeader>
           <div className="flex items-end justify-between gap-2">
             <div>
-              <CardTitle>Selected items</CardTitle>
+              <CardTitle>Price adjust table</CardTitle>
               <CardDescription>
                 Adjustments are local; new prices are calculated via server action.
               </CardDescription>
             </div>
-            <div className="text-muted-foreground text-[0.625rem]">
-              {selectedProducts.length} items
+            <div className="flex items-center gap-2">
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                onClick={refreshPricingPreview}
+                disabled={isCalculating || selectedIds.length === 0}
+                className="h-7 px-2"
+              >
+                <RefreshCwIcon className={`size-3 ${isCalculating ? 'animate-spin' : ''}`} />
+                <span className="sr-only">Refresh pricing</span>
+              </Button>
+              <div className="text-muted-foreground text-[0.625rem]">
+                {selectedProducts.length} items
+              </div>
             </div>
           </div>
         </CardHeader>
