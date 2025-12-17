@@ -14,8 +14,19 @@ export const segmentSchema = z.object({
   name: z.string().min(1, "Segment name is required"),
 })
 
+export const renameSchema = z.object({
+  id: z.string().uuid(),
+  name: z.string().min(1, "Name is required"),
+})
+
+export const deleteSchema = z.object({
+  id: z.string().uuid(),
+})
+
 export type CategoryFormValues = z.infer<typeof categorySchema>
 export type SubcategoryFormValues = z.infer<typeof subcategorySchema>
 export type SegmentFormValues = z.infer<typeof segmentSchema>
+export type RenameValues = z.infer<typeof renameSchema>
+export type DeleteValues = z.infer<typeof deleteSchema>
 
 
