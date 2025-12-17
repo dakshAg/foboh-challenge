@@ -1,40 +1,60 @@
-import { Badge } from "@/components/ui/badge"
+import Link from "next/link"
+
+import prisma from "@/lib/prisma"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { PageShell } from "@/components/page-shell"
 
-const products = [
-  { sku: "PRD-FOAM-01", name: "Foam Roller", price: 24.99, inventory: 12, status: "Low stock" },
-  { sku: "PRD-MAT-02", name: "Yoga Mat", price: 39.99, inventory: 180, status: "In stock" },
-  { sku: "PRD-BAND-03", name: "Resistance Bands", price: 19.5, inventory: 64, status: "In stock" },
-  { sku: "PRD-BOTTLE-04", name: "Water Bottle", price: 14.0, inventory: 0, status: "Out of stock" },
-  { sku: "PRD-KB-05", name: "Kettlebell 16kg", price: 79.0, inventory: 8, status: "Low stock" },
-] as const
+export const dynamic = "force-dynamic"
 
-function stockBadge(status: (typeof products)[number]["status"]) {
-  switch (status) {
-    case "In stock":
-      return <Badge variant="secondary">In stock</Badge>
-    case "Low stock":
-      return <Badge variant="outline">Low stock</Badge>
-    case "Out of stock":
-      return <Badge variant="destructive">Out of stock</Badge>
-    default:
-      return <Badge variant="outline">{status}</Badge>
-  }
+function formatMoney(value: unknown) {
+  // Prisma Decimal stringifies nicely in server components.
+  const num = Number(String(value))
+  if (Number.isFinite(num)) return `$${num.toFixed(2)}`
+  return String(value)
 }
 
-export default function ProductsPage() {
+export default async function ProductsPage() {
+  const demoEmail = "demo@foboh.local"
+
+  const user = await prisma.user.upsert({
+    where: { email: demoEmail },
+    update: {},
+    create: {
+      email: demoEmail,
+      password: "demo",
+      name: "Demo User",
+    },
+  })
+
+  const products = await prisma.product.findMany({
+    where: { userId: user.id },
+    orderBy: { updatedAt: "desc" },
+    select: {
+      id: true,
+      title: true,
+      sku: true,
+      brand: true,
+      globalWholesalePrice: true,
+      updatedAt: true,
+      category: { select: { name: true } },
+      subcategory: { select: { name: true } },
+      segment: { select: { name: true } },
+    },
+  })
+
   return (
     <PageShell
       title="Products"
-      description="Catalog & inventory (dummy data)."
+      description="Catalog & inventory."
       actions={
         <>
-          <Button variant="outline" size="sm">
-            Bulk edit
+          <Button asChild size="sm">
+            <Link href="/products/add-product">Add product</Link>
           </Button>
-          <Button size="sm">Add Product</Button>
+          <Button asChild variant="outline" size="sm">
+            <Link href="/products/catalog-setup">Catalog setup</Link>
+          </Button>
         </>
       }
     >
@@ -44,47 +64,71 @@ export default function ProductsPage() {
             <CardDescription>Catalog size</CardDescription>
             <CardTitle>{products.length}</CardTitle>
           </CardHeader>
-          <CardContent className="text-muted-foreground text-xs/relaxed">Dummy SKUs</CardContent>
+          <CardContent className="text-muted-foreground text-xs/relaxed">
+            Total products for {user.name}
+          </CardContent>
         </Card>
         <Card>
           <CardHeader className="pb-2">
-            <CardDescription>Low stock</CardDescription>
-            <CardTitle>{products.filter((p) => p.status === "Low stock").length}</CardTitle>
+            <CardDescription>Unique brands</CardDescription>
+            <CardTitle>{new Set(products.map((p) => p.brand)).size}</CardTitle>
           </CardHeader>
-          <CardContent className="text-muted-foreground text-xs/relaxed">Below threshold</CardContent>
+          <CardContent className="text-muted-foreground text-xs/relaxed">
+            Counted from current list
+          </CardContent>
         </Card>
         <Card>
           <CardHeader className="pb-2">
-            <CardDescription>Out of stock</CardDescription>
-            <CardTitle>{products.filter((p) => p.status === "Out of stock").length}</CardTitle>
+            <CardDescription>Latest update</CardDescription>
+            <CardTitle>
+              {products[0]?.updatedAt
+                ? new Intl.DateTimeFormat("en-US", {
+                    month: "short",
+                    day: "2-digit",
+                    year: "numeric",
+                  }).format(products[0].updatedAt)
+                : "—"}
+            </CardTitle>
           </CardHeader>
-          <CardContent className="text-muted-foreground text-xs/relaxed">Needs reorder</CardContent>
+          <CardContent className="text-muted-foreground text-xs/relaxed">
+            Most recently modified product
+          </CardContent>
         </Card>
       </section>
 
       <Card className="mt-6">
         <CardHeader>
-          <CardTitle>Inventory</CardTitle>
-          <CardDescription>Current on-hand quantities</CardDescription>
+          <CardTitle>Products</CardTitle>
+          <CardDescription>All products for this user</CardDescription>
         </CardHeader>
         <CardContent>
-          <ul className="divide-border/50 divide-y">
-            {products.map((p) => (
-              <li key={p.sku} className="flex flex-col gap-2 py-3 sm:flex-row sm:items-center sm:justify-between">
-                <div className="min-w-0">
-                  <div className="flex items-center gap-2">
-                    <div className="text-xs font-medium">{p.name}</div>
-                    {stockBadge(p.status)}
+          {products.length === 0 ? (
+            <div className="text-muted-foreground text-xs/relaxed">
+              No products yet. Click <span className="font-medium">Add product</span> to create one.
+            </div>
+          ) : (
+            <ul className="divide-border/50 divide-y">
+              {products.map((p) => (
+                <li
+                  key={p.id}
+                  className="flex flex-col gap-2 py-3 sm:flex-row sm:items-center sm:justify-between"
+                >
+                  <div className="min-w-0">
+                    <div className="text-xs font-medium">{p.title}</div>
+                    <div className="text-muted-foreground mt-1 text-[0.625rem]">
+                      {p.brand} • {p.sku}
+                    </div>
+                  <div className="text-muted-foreground mt-0.5 text-[0.625rem]">
+                    {p.category.name} / {p.subcategory.name} / {p.segment.name}
                   </div>
-                  <div className="text-muted-foreground mt-1 text-[0.625rem]">{p.sku}</div>
-                </div>
-                <div className="flex items-center gap-4">
-                  <div className="text-muted-foreground text-xs">${p.price.toFixed(2)}</div>
-                  <div className="text-xs font-medium">{p.inventory} on hand</div>
-                </div>
-              </li>
-            ))}
-          </ul>
+                  </div>
+                  <div className="text-xs font-medium">
+                    {formatMoney(p.globalWholesalePrice)}
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
         </CardContent>
       </Card>
     </PageShell>

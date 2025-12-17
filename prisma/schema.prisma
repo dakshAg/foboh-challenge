@@ -22,6 +22,9 @@ model User {
   updatedAt       DateTime         @updatedAt
   pricingProfiles PricingProfile[]
   products        Product[]
+  categories      Category[]
+  subcategories   Subcategory[]
+  segments        Segment[]
 }
 
 model Product {
@@ -38,6 +41,51 @@ model Product {
   updatedAt              DateTime                @updatedAt
   productPricingProfiles ProductPricingProfile[]
   user                   User                    @relation(fields: [userId], references: [id])
+  category               Category                @relation(fields: [categoryId], references: [id])
+  subcategory            Subcategory             @relation(fields: [subcategoryId], references: [id])
+  segment                Segment                 @relation(fields: [segmentId], references: [id])
+}
+
+model Category {
+  id            String        @id @default(uuid())
+  userId        String
+  name          String
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+  user          User          @relation(fields: [userId], references: [id])
+  subcategories Subcategory[]
+  products      Product[]
+
+  @@unique([userId, name])
+}
+
+model Subcategory {
+  id         String     @id @default(uuid())
+  userId     String
+  categoryId String
+  name       String
+  createdAt  DateTime   @default(now())
+  updatedAt  DateTime   @updatedAt
+  user       User       @relation(fields: [userId], references: [id])
+  category   Category   @relation(fields: [categoryId], references: [id])
+  segments   Segment[]
+  products   Product[]
+
+  @@unique([categoryId, name])
+}
+
+model Segment {
+  id            String      @id @default(uuid())
+  userId        String
+  subcategoryId String
+  name          String
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+  user          User        @relation(fields: [userId], references: [id])
+  subcategory   Subcategory @relation(fields: [subcategoryId], references: [id])
+  products      Product[]
+
+  @@unique([subcategoryId, name])
 }
 
 enum PriceAdjustMode {
