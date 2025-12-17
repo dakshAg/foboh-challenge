@@ -109,7 +109,7 @@ model PricingProfile {
   name                   String
   userId                 String
   description            String
-  basedOn                String
+  basedOn                String                  @default("globalWholesalePrice")
   priceAdjustMode        PriceAdjustMode
   incrementMode          IncrementMode
   status                 PricingProfileStatus    @default(DRAFT)

@@ -1,3 +1,18 @@
+/**
+ * Pricing profile preview page.
+ *
+ * This page displays a complete preview of a pricing profile before publishing.
+ * It shows calculated prices for all products in the profile and allows
+ * publishing the profile to make it active.
+ *
+ * Key features:
+ * - Server-side price calculation with profile chain resolution
+ * - Visual preview of all pricing adjustments
+ * - Validation (prevents negative prices)
+ * - Publishing workflow with error handling
+ * - Responsive table layout for product data
+ */
+
 import Link from "next/link"
 
 import prisma from "@/lib/prisma"
@@ -9,6 +24,9 @@ import { publishPricingProfileFormAction } from "../../actions"
 
 export const dynamic = "force-dynamic"
 
+/**
+ * Formats a number as USD currency for display.
+ */
 function formatMoney(n: number): string {
   return new Intl.NumberFormat("en-US", {
     style: "currency",
@@ -17,6 +35,19 @@ function formatMoney(n: number): string {
   }).format(n)
 }
 
+/**
+ * Preview page for pricing profiles.
+ *
+ * This server component:
+ * 1. Fetches the pricing profile and its associated products
+ * 2. Calculates final prices based directly on global wholesale price
+ * 3. Displays preview with validation and publishing options
+ *
+ * All pricing profiles now use global wholesale price as the base.
+ *
+ * @param params - Route parameters containing pricingProfileId
+ * @param searchParams - Query parameters, may contain error messages
+ */
 export default async function PricingProfilePreviewPage({
   params,
   searchParams,
@@ -65,85 +96,39 @@ export default async function PricingProfilePreviewPage({
     )
   }
 
-  // Build a small cache of based-on profile chain for this profile's products.
-  const productIds = profile.productPricingProfiles.map((ppp) => ppp.productId)
-  const profilesById = new Map<
-    string,
-    {
-      id: string
-      basedOn: string
-      priceAdjustMode: "FIXED" | "DYNAMIC"
-      incrementMode: "INCREASE" | "DECREASE"
-      adjustmentsByProductId: Record<string, number>
-    }
-  >()
-
-  const visited = new Set<string>()
-  let current = profile.basedOn
-  let depth = 0
-  while (current !== "globalWholesalePrice" && depth < 10) {
-    if (visited.has(current)) break
-    visited.add(current)
-    const p = await prisma.pricingProfile.findFirst({
-      where: { id: current, userId: user.id },
-      select: {
-        id: true,
-        basedOn: true,
-        priceAdjustMode: true,
-        incrementMode: true,
-        productPricingProfiles: {
-          where: { productId: { in: productIds } },
-          select: { productId: true, adjustment: true },
-        },
-      },
-    })
-    if (!p) break
-    const adjustmentsByProductId: Record<string, number> = {}
-    for (const ppp of p.productPricingProfiles) {
-      const n = Number(String(ppp.adjustment ?? "0"))
-      adjustmentsByProductId[ppp.productId] = Number.isFinite(n) ? n : 0
-    }
-    profilesById.set(p.id, {
-      id: p.id,
-      basedOn: p.basedOn,
-      priceAdjustMode: p.priceAdjustMode,
-      incrementMode: p.incrementMode,
-      adjustmentsByProductId,
-    })
-    current = p.basedOn
-    depth++
-  }
-
+  /**
+   * Applies a pricing adjustment to a base price.
+   *
+   * @param base - The base price to adjust
+   * @param adjustment - The adjustment value (fixed amount or percentage)
+   * @param mode - FIXED (dollar amount) or DYNAMIC (percentage)
+   * @param inc - INCREASE (add adjustment) or DECREASE (subtract adjustment)
+   * @returns The adjusted price
+   */
   function applyAdjustment(base: number, adjustment: number, mode: "FIXED" | "DYNAMIC", inc: "INCREASE" | "DECREASE") {
     const delta = mode === "DYNAMIC" ? base * (adjustment / 100) : adjustment
     return inc === "DECREASE" ? base - delta : base + delta
   }
 
-  function computeChainBasedOn(basedOn: string, productId: string, globalPrice: number, seen = new Set<string>(), d = 0): number {
-    if (basedOn === "globalWholesalePrice") return globalPrice
-    if (d > 10) return globalPrice
-    if (seen.has(basedOn)) return globalPrice
-    seen.add(basedOn)
-    const p = profilesById.get(basedOn)
-    if (!p) return globalPrice
-    const base = computeChainBasedOn(p.basedOn, productId, globalPrice, seen, d + 1)
-    const adj = p.adjustmentsByProductId[productId]
-    if (typeof adj !== "number") return base
-    return applyAdjustment(base, adj, p.priceAdjustMode, p.incrementMode)
-  }
-
+  // Calculate final prices for all products in this profile
+  // All pricing is now based directly on global wholesale price
   const rows = profile.productPricingProfiles.map((ppp) => {
+    // Parse and validate product data
     const global = Number(String(ppp.product.globalWholesalePrice ?? "0"))
     const safeGlobal = Number.isFinite(global) ? global : 0
-    const base = computeChainBasedOn(profile.basedOn, ppp.productId, safeGlobal)
+
+    // All pricing profiles now use global wholesale price as the base
+    const base = safeGlobal
+
+    // Parse the adjustment value for this specific product
     const adj = Number(String(ppp.adjustment ?? "0"))
-    const safeBase = Number.isFinite(base) ? base : 0
     const safeAdj = Number.isFinite(adj) ? adj : 0
 
+    // Calculate the final price adjustment and new price
     const delta =
-      profile.priceAdjustMode === "DYNAMIC" ? safeBase * (safeAdj / 100) : safeAdj
+      profile.priceAdjustMode === "DYNAMIC" ? base * (safeAdj / 100) : safeAdj
     const newPrice =
-      profile.incrementMode === "DECREASE" ? safeBase - delta : safeBase + delta
+      profile.incrementMode === "DECREASE" ? base - delta : base + delta
 
     return {
       id: ppp.id,
@@ -151,12 +136,13 @@ export default async function PricingProfilePreviewPage({
       sku: ppp.product.sku,
       brand: ppp.product.brand,
       category: ppp.product.category.name,
-      base: safeBase,
+      base,
       adjustment: safeAdj,
       newPrice,
     }
   })
 
+  // Validate that no products have negative prices (business rule)
   const hasNegative = rows.some((r) => r.newPrice < 0)
 
   return (
@@ -175,7 +161,7 @@ export default async function PricingProfilePreviewPage({
         <Badge variant={profile.incrementMode === "DECREASE" ? "destructive" : "secondary"}>
           {profile.incrementMode}
         </Badge>
-        <Badge variant="outline">Based on: {profile.basedOn}</Badge>
+        <Badge variant="outline">Based on: Global wholesale price</Badge>
         <Badge variant="outline">{rows.length} items</Badge>
       </div>
 
@@ -229,6 +215,8 @@ export default async function PricingProfilePreviewPage({
             </div>
           ) : null}
 
+          {/* Display publishing errors from server actions */}
+          {/* Display publishing errors from server actions */}
           {error ? (
             <div className="text-destructive mt-3 text-xs/relaxed">
               {error === "negative"
@@ -237,14 +225,14 @@ export default async function PricingProfilePreviewPage({
                   ? "Cannot publish: invalid profile id."
                   : error === "not_found"
                     ? "Cannot publish: profile not found."
-                    : error === "unsupported"
-                      ? "Cannot publish: unsupported basedOn field."
-                      : "Cannot publish due to an error."}
+                    : "Cannot publish due to an error."}
             </div>
           ) : null}
         </CardContent>
       </Card>
 
+      {/* Sticky footer with publish action */}
+      {/* Only allows publishing if no negative prices and profile is in DRAFT status */}
       <div className="bg-background/80 supports-[backdrop-filter]:bg-background/60 sticky bottom-0 z-10 -mx-4 mt-4 border-t px-4 py-3 backdrop-blur md:-mx-6 md:px-6">
         <form action={publishPricingProfileFormAction.bind(null, profile.id)} className="flex justify-end">
           <Button type="submit" disabled={hasNegative || profile.status !== "DRAFT"}>

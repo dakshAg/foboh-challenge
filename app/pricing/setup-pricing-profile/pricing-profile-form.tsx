@@ -348,7 +348,7 @@ export function PricingProfileForm({
           {selectedIds.length} selected
         </Badge>
         <Badge variant="outline">
-          {Math.max(0, products.length - selectedIds.length)} unselected (uses “Based on”)
+          {Math.max(0, products.length - selectedIds.length)} unselected
         </Badge>
         <Badge variant="secondary">
           {priceAdjustMode === "DYNAMIC" ? "Percent" : "Dollars"}
@@ -356,14 +356,6 @@ export function PricingProfileForm({
         <Badge variant={incrementMode === "DECREASE" ? "destructive" : "secondary"}>
           {incrementMode === "DECREASE" ? "Decrease" : "Increase"}
         </Badge>
-        {form.watch("basedOn") ? (
-          <Badge variant="outline">
-            Based on:{" "}
-            {form.watch("basedOn") === "globalWholesalePrice"
-              ? "Global wholesale price"
-              : pricingProfiles.find((p) => p.id === form.watch("basedOn"))?.name ?? "Profile"}
-          </Badge>
-        ) : null}
         {isCalculating ? <Badge variant="outline">Calculating…</Badge> : null}
       </div>
 
@@ -665,33 +657,15 @@ export function PricingProfileForm({
             <Field>
               <FieldLabel>Based on</FieldLabel>
               <FieldContent>
-                <Controller
-                  name="basedOn"
-                  control={form.control}
-                  render={({ field }) => (
-                    <Select value={field.value} onValueChange={field.onChange}>
-                      <SelectTrigger className="w-full">
-                        <SelectValue placeholder="Select base price" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectGroup>
-                          <SelectItem value="globalWholesalePrice">
-                            Global wholesale price
-                          </SelectItem>
-                          {pricingProfiles.map((p) => (
-                            <SelectItem key={p.id} value={p.id}>
-                              {p.name} {p.status === "DRAFT" ? "(Draft)" : ""}
-                            </SelectItem>
-                          ))}
-                        </SelectGroup>
-                      </SelectContent>
-                    </Select>
-                  )}
-                />
+                <div className="flex items-center justify-between rounded-md border bg-muted/50 px-3 py-2 text-sm">
+                  <span>Global wholesale price</span>
+                  <Badge variant="secondary" className="text-xs">
+                    Fixed
+                  </Badge>
+                </div>
                 <FieldDescription>
-                  If a product isn't selected in the "Based on" profile, it falls back to that profile's base pricing.
+                  All pricing profiles are based on global wholesale price.
                 </FieldDescription>
-                <FieldError errors={[errors.basedOn]} />
               </FieldContent>
             </Field>
 
